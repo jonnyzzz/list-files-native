@@ -1,31 +1,98 @@
 #include <iostream>
-#include <dirent.h>
 #include <chrono>
 #include <list>
 #include <queue>
 
+#include <sys/attr.h>
+#include <sys/errno.h>
+#include <sys/vnode.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <assert.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdbool.h>
+
 int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
-    DIR *pDir = opendir(dirName.c_str());
-    if (pDir == nullptr) return 1;
-
     int count = 0;
-    while (true) {
-        auto e = readdir(pDir);
-        if (e == nullptr) break;
 
-        if (e->d_name[0] == '.') {
-            if (e->d_name[1] == '\0') continue;
-            if (e->d_name[1] == '.' && e->d_name[2] == '\0') continue;
-        }
-
-//        if (strcmp(e->d_name, "out") == 0) continue;
-
-        if (e->d_type == DT_UNKNOWN || e->d_type == DT_DIR) {
-            newDirs.emplace(dirName + '/' + std::string(e->d_name));
-        }
-        count++;
+    int dirfd = open(dirName.c_str(), O_RDONLY, 0);
+    if (dirfd < 0) {
+        printf("Could not open directory %s", dirName.c_str());
+        perror("Error was ");
+        printf("\n");
+        return 0;
     }
-    closedir(pDir);
+
+    char attrBuf[1024*1024];
+
+    attrlist attrList{};
+    attrList.bitmapcount = ATTR_BIT_MAP_COUNT;
+    attrList.commonattr  = ATTR_CMN_RETURNED_ATTRS |
+                           ATTR_CMN_NAME |
+                           ATTR_CMN_ERROR |
+                           ATTR_CMN_OBJTYPE;
+
+    for (;;) {
+        int retCount = getattrlistbulk(dirfd, &attrList, &attrBuf[0], sizeof(attrBuf), 0);
+        if (retCount == -1) {
+            perror("Error returned : ");
+            printf("\n");
+            break;
+        }
+
+        if (retCount == 0) {
+            /* No more entries in directory */
+            break;
+        }
+
+        char* entry_start = &attrBuf[0];
+        for (int index = 0; index < retCount; index++) {
+            count++;
+
+            char* field = entry_start;
+            uint32_t length = *(uint32_t *)field;
+            field += sizeof(uint32_t);
+
+            /* set starting point for next entry */
+            entry_start += length;
+
+            attribute_set_t returned = *(attribute_set_t *)field;
+            field += sizeof(attribute_set_t);
+
+            if (returned.commonattr & ATTR_CMN_ERROR) {
+                uint32_t error = *(uint32_t *)field;
+                field += sizeof(uint32_t);
+                /*
+                 * Print error and move on to next
+                 * entry
+                */
+                printf("Error in reading attributes for directory entry %d", error);
+                continue;
+            }
+
+            std::string name;
+            if (returned.commonattr & ATTR_CMN_NAME) {
+                attrreference_t name_info = *(attrreference_t *)field;
+                name = (field + name_info.attr_dataoffset);
+                field += sizeof(attrreference_t);
+            }
+
+            if (returned.commonattr & ATTR_CMN_OBJTYPE) {
+                fsobj_type_t obj_type = *(fsobj_type_t *)field;
+                field += sizeof(fsobj_type_t);
+
+                if (obj_type == VDIR) {
+                    newDirs.emplace(dirName + '/' + name);
+                }
+            }
+        }
+        //a hack, we believe all entries are returned at once
+        break;
+    }
+    close(dirfd);
+
     return count;
 }
 
