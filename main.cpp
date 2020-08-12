@@ -49,13 +49,14 @@ int main() {
 
     const char *home = "/Users/jonnyzzz/Work/intellij";
 
-    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-    int total = readRecursive(home);
+    for(int i = 0; i < 5; i++) {
+        std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+        int total = readRecursive(home);
 
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()
-              << "[ms]" << std::endl;
-    std::cout << "Total files: " << total << std::endl;
-
+        std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+        std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()
+                  << "[ms]" << std::endl;
+        std::cout << "Total files: " << total << std::endl;
+    }
     return 0;
 }
