@@ -18,12 +18,7 @@ int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
     int count = 0;
 
     int dirfd = open(dirName.c_str(), O_RDONLY, 0);
-    if (dirfd < 0) {
-        printf("Could not open directory %s", dirName.c_str());
-        perror("Error was ");
-        printf("\n");
-        return 0;
-    }
+    if (dirfd < 0) return 0;
 
     char attrBuf[1024*1024];
 
@@ -36,16 +31,7 @@ int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
 
     for (;;) {
         int retCount = getattrlistbulk(dirfd, &attrList, &attrBuf[0], sizeof(attrBuf), 0);
-        if (retCount == -1) {
-            perror("Error returned : ");
-            printf("\n");
-            break;
-        }
-
-        if (retCount == 0) {
-            /* No more entries in directory */
-            break;
-        }
+        if (retCount <= 0) break;
 
         char* entry_start = &attrBuf[0];
         for (int index = 0; index < retCount; index++) {
@@ -54,23 +40,12 @@ int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
             char* field = entry_start;
             uint32_t length = *(uint32_t *)field;
             field += sizeof(uint32_t);
-
-            /* set starting point for next entry */
             entry_start += length;
 
             attribute_set_t returned = *(attribute_set_t *)field;
             field += sizeof(attribute_set_t);
 
-            if (returned.commonattr & ATTR_CMN_ERROR) {
-                uint32_t error = *(uint32_t *)field;
-                field += sizeof(uint32_t);
-                /*
-                 * Print error and move on to next
-                 * entry
-                */
-                printf("Error in reading attributes for directory entry %d", error);
-                continue;
-            }
+            if (returned.commonattr & ATTR_CMN_ERROR) continue;
 
             std::string name;
             if (returned.commonattr & ATTR_CMN_NAME) {
@@ -81,15 +56,12 @@ int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
 
             if (returned.commonattr & ATTR_CMN_OBJTYPE) {
                 fsobj_type_t obj_type = *(fsobj_type_t *)field;
-                field += sizeof(fsobj_type_t);
 
                 if (obj_type == VDIR) {
                     newDirs.emplace(dirName + '/' + name);
                 }
             }
         }
-        //a hack, we believe all entries are returned at once
-        break;
     }
     close(dirfd);
 
