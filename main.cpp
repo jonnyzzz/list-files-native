@@ -13,84 +13,53 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdbool.h>
+#include<stdlib.h>
+#include<stdio.h>
+#include<sys/types.h>
+#include<sys/stat.h>
+#include<fts.h>
+#include<string.h>
+#include<errno.h>
 
-int readOneDir(const std::string &dirName, std::queue<std::string> &newDirs) {
+//https://stackoverflow.com/questions/12609747/traversing-a-filesystem-with-fts3/22354701
+int compare(const FTSENT **one, const FTSENT **two) {
+    return (strcmp((*one)->fts_name, (*two)->fts_name));
+}
+
+int scanDirs(const char* home) {
     int count = 0;
+    char name[2323423];
+    char* pName = (char*)&name[0];
+    strcpy(pName, home);
+    FTS* file_system = fts_open(&pName, FTS_COMFOLLOW | FTS_NOCHDIR | FTS_PHYSICAL | FTS_NOSTAT_TYPE, &compare);
+    if (file_system == nullptr) return 0;
 
-    int dirfd = open(dirName.c_str(), O_RDONLY, 0);
-    if (dirfd < 0) return 0;
+    while (fts_read(file_system) != nullptr) {
+        FTSENT *child = fts_children(file_system, 0);
 
-    char attrBuf[1024*1024];
+        if (errno != 0) {
+            perror("fts_children");
+            continue;
+        }
 
-    attrlist attrList{};
-    attrList.bitmapcount = ATTR_BIT_MAP_COUNT;
-    attrList.commonattr  = ATTR_CMN_RETURNED_ATTRS |
-                           ATTR_CMN_NAME |
-                           ATTR_CMN_ERROR |
-                           ATTR_CMN_OBJTYPE;
-
-    for (;;) {
-        int retCount = getattrlistbulk(dirfd, &attrList, &attrBuf[0], sizeof(attrBuf), 0);
-        if (retCount <= 0) break;
-
-        char* entry_start = &attrBuf[0];
-        for (int index = 0; index < retCount; index++) {
+        count++;
+        while (child != nullptr && child->fts_link != nullptr) {
+            child = child->fts_link;
             count++;
-
-            char* field = entry_start;
-            uint32_t length = *(uint32_t *)field;
-            field += sizeof(uint32_t);
-            entry_start += length;
-
-            attribute_set_t returned = *(attribute_set_t *)field;
-            field += sizeof(attribute_set_t);
-
-            if (returned.commonattr & ATTR_CMN_ERROR) continue;
-
-            std::string name;
-            if (returned.commonattr & ATTR_CMN_NAME) {
-                attrreference_t name_info = *(attrreference_t *)field;
-                name = (field + name_info.attr_dataoffset);
-                field += sizeof(attrreference_t);
-            }
-
-            if (returned.commonattr & ATTR_CMN_OBJTYPE) {
-                fsobj_type_t obj_type = *(fsobj_type_t *)field;
-
-                if (obj_type == VDIR) {
-                    newDirs.emplace(dirName + '/' + name);
-                }
-            }
         }
     }
-    close(dirfd);
-
+    fts_close(file_system);
     return count;
 }
-
-int readRecursive(const std::string &dir) {
-    int count = 1;
-    std::queue<std::string> dirQueue;
-    dirQueue.emplace(dir);
-
-    while (!dirQueue.empty()) {
-        std::string home = dirQueue.front();
-        dirQueue.pop();
-        count += readOneDir(home, dirQueue);
-    }
-
-    return count;
-}
-
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
 
     const char *home = "/Users/jonnyzzz/Work/intellij";
 
-    for(int i = 0; i < 5; i++) {
+    for (int i = 0; i < 5; i++) {
         std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-        int total = readRecursive(home);
+        int total = scanDirs(home);
 
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
         std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()
